@@ -1,3 +1,7 @@
+import { enterContext, exitContext, HookContext } from "./hooks";
+import { objectEquals, queueFunction } from "./util";
+
+export { useState, useMemo, useEffect } from "./hooks"
 
 export type ComponentFunction = (props?: any) => any;
 
@@ -36,122 +40,6 @@ export function createRoot(component: ComponentDescriptor) {
         },
     }
 }
-
-export function useState<T>(initValue: T) {
-    const instance = renderContext.instance;
-    if (!instance) throw new Error("hooks must be called in a component");
-    let hookState: HookInType<"state">;
-    if (renderContext.firstRender) {
-        hookState = { type: 'state', value: initValue };
-        instance.hookStates.push(hookState);
-    } else {
-        hookState = renderContext.getHookState("state");
-    }
-    const setter = (newValue: T) => {
-        if (instance.unmounted) {
-            // console.warn("cannot set state after the component is unmounted");
-            return;
-        }
-        hookState.value = newValue;
-        instance.needRender();
-    };
-    return [hookState.value, setter] as const;
-}
-
-export function useMemo<T>(func: () => T, deps: any[]) {
-    const instance = renderContext.instance;
-    if (!instance) throw new Error("hooks must be called in a component");
-    let hookState: HookInType<"memo">;
-    if (renderContext.firstRender) {
-        hookState = { type: 'memo', value: func(), deps };
-        instance.hookStates.push(hookState);
-    } else {
-        hookState = renderContext.getHookState("memo");
-        const depsChanged = !arrayEquals(deps, hookState.deps);
-        hookState.deps = deps;
-        if (depsChanged) {
-            hookState.value = func();
-        }
-    }
-    return hookState.value;
-}
-
-export type EffectFunction = () => (void | EffectCleanupFunction);
-export type EffectCleanupFunction = () => void;
-
-export function useEffect(func: EffectFunction, deps?: any[]) {
-    if (!renderContext.instance) throw new Error("hooks must be called in a component");
-    let hookState: HookInType<"effect">;
-    let runEffect = false;
-    if (renderContext.firstRender) {
-        hookState = { type: 'effect', function: func, deps: deps, cleanup: undefined };
-        renderContext.instance.hookStates.push(hookState);
-        runEffect = true;
-    } else {
-        hookState = renderContext.getHookState("effect");
-        // Check deps and decide whether to rerun the effect
-        const oldDeps = hookState.deps;
-        hookState.deps = deps;
-        if (!deps) {
-            runEffect = true;
-        } else {
-            runEffect = !arrayEquals(oldDeps!, deps);
-        }
-    }
-    if (runEffect) {
-        hookState.function = func;
-        queueFunction(() => {
-            // Cleanup the old effect
-            if (hookState.cleanup) {
-                hookState.cleanup();
-            }
-            // Run the new effect
-            const cleanup = hookState.function();
-            // Save the cleanup function
-            if (typeof cleanup == "function") {
-                hookState.cleanup = cleanup;
-            } else {
-                hookState.cleanup = undefined;
-            }
-        });
-    }
-}
-
-let renderContext = {
-    instance: null as ComponentInstance | null,
-    hookIndex: 0,
-    firstRender: false,
-    pushHookState(hook: Hook) {
-        this.instance!.hookStates.push(hook);
-    },
-    getHookState<T extends Hook['type']>(expectType: T): HookInType<T> {
-        const hook = this.instance!.hookStates[this.hookIndex++];
-        if (hook.type !== expectType) throw new Error(`hooks should not change between calls`);
-        return hook as any;
-    },
-}
-
-
-
-type Hook =
-    | {
-        type: "state",
-        value: any,
-    }
-    | {
-        type: "memo",
-        value: any,
-        deps: any[],
-    }
-    | {
-        type: "effect",
-        function: EffectFunction,
-        deps: any[] | undefined,
-        cleanup: EffectCleanupFunction | undefined,
-    };
-
-type HookInType<T extends Hook['type']> = Extract<Hook, { type: T }>;
-
 type RenderFunction = (props: any) => any;
 
 const componentMark = Symbol('component');
@@ -162,7 +50,6 @@ class Context {
 
 class ComponentInstance {
     props: any;
-    hookStates: Hook[] = null!;
     current: any;
     components: ComponentInstance[] = [];
     context: Context = null!;
@@ -175,6 +62,16 @@ class ComponentInstance {
         this.props = props;
         this.context = context;
     }
+
+    onStateChanged = () => {
+        if (this.unmounted) {
+            // console.warn("cannot set state after the component is unmounted");
+            return;
+        }
+        this.needRender();
+    };
+
+    hookStates = new HookContext(this.onStateChanged);
 
     needRender() {
         if (!this.pendingRender) {
@@ -189,14 +86,11 @@ class ComponentInstance {
     doRender(triggerByParent: boolean) {
         this.pendingRender = false;
 
-        renderContext.instance = this;
-        renderContext.hookIndex = 0;
-        renderContext.firstRender = !this.hookStates;
-        if (!this.hookStates) this.hookStates = [];
+        enterContext(this.hookStates);
 
         const newTree = this.renderFunc(this.props);
 
-        renderContext.instance = null;
+        exitContext();
 
         let currentReplaced = false;
         const newComponents: ComponentInstance[] = [];
@@ -257,18 +151,10 @@ class ComponentInstance {
     }
 
     unmount() {
-        // Check live hooks
-        for (const it of this.hookStates) {
-            // Run the cleanup function of effect hook
-            if (it.type === "effect" && it.cleanup) it.cleanup();
-        }
+        this.hookStates.unmount();
 
         this.unmounted = true;
     }
-}
-
-function queueFunction(func: () => void) {
-    queueMicrotask(func);
 }
 
 function visitForComponent(node: any, callback: (node: any, key: any, value: any) => void) {
@@ -294,22 +180,4 @@ function _visitForComponent(node: any, callback: (node: any, key: any, value: an
             }
         }
     }
-}
-
-function arrayEquals(a: any[], b: any) {
-    if (a === b) return true;
-    if (!a || !b) return false;
-    if (a.length !== b.length) return false;
-    for (let i = 0; i < a.length; i++) {
-        if (a[i] !== b[i]) return false;
-    }
-    return true;
-}
-
-/** Not deep equals */
-function objectEquals(a: any, b: any) {
-    return a === b
-        || (a && b
-            && arrayEquals(Object.keys(a), Object.keys(b))
-            && arrayEquals(Object.values(a), Object.values(b)));
 }
