@@ -180,13 +180,15 @@ class ComponentInstance {
         if (!this.pendingRender) {
             this.pendingRender = true;
             queueFunction(() => {
-                this.pendingRender = false;
+                if (!this.pendingRender) return;
                 this.doRender(false);
             });
         }
     }
 
     doRender(triggerByParent: boolean) {
+        this.pendingRender = false;
+
         renderContext.instance = this;
         renderContext.hookIndex = 0;
         renderContext.firstRender = !this.hookStates;
