@@ -1,0 +1,23 @@
+{
+  "name": "@yuuza/reactive-tree",
+  "publishConfig": {
+    "access": "public"
+  },
+  "version": "1.0.0",
+  "description": "",
+  "main": "build/index.js",
+  "scripts": {
+    "prepack": "rm -rf build && tsc",
+    "build": "tsc",
+    "start": "node --enable-source-maps build/demo"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "MIT",
+  "devDependencies": {
+    "@types/node": "^17.0.15",
+    "@types/node-fetch": "2.5.12",
+    "node-fetch": "2",
+    "typescript": "^4.5.5"
+  }
+}
