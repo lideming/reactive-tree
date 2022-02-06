@@ -280,6 +280,8 @@ function visitForComponent(node: any, callback: (node: any, key: any, value: any
 }
 
 function _visitForComponent(node: any, callback: (node: any, key: any, value: any) => void) {
+    const prototype = Object.getPrototypeOf(node);
+    if (prototype !== Object.prototype && prototype !== Array.prototype && prototype != null) return;
     for (const key in node) {
         if (Object.prototype.hasOwnProperty.call(node, key)) {
             const value = node[key];
