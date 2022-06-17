@@ -22,6 +22,8 @@ Check `src/demo.tsx` for demo.
 
 To run the demo: clone the repository, then run `pnpm i && pnpm build && pnpm start`.
 
+[Try in GitPod](https://gitpod.io/#https://github.com/lideming/reactive-tree)
+
 ## Features
 
 - Hooks: useState, useEffect, useMemo
