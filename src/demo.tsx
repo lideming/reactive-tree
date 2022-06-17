@@ -35,7 +35,7 @@ function Timer(props: { interval: number }) {
 function MyIp() {
     const [ip, setIp] = useState("");
     useEffect(() => {
-        fetch("https://yuuza.net/api/myip").then(async (resp) => {
+        fetch("https://ipinfo.io/ip").then(async (resp) => {
             setIp(await resp.text());
         })
     }, []);
